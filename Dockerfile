@@ -1,12 +1,15 @@
-FROM python:3.12-slim-bookworm
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+FROM python:3.14.6-slim-bookworm
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 # 安装Node.js
 RUN apt-get update && \
-    apt-get install -y curl && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && \
+    apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录
@@ -16,7 +19,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 使用 uv 安装基础依赖到系统环境
-RUN uv pip install --system -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # 复制应用代码和启动脚本
 COPY app/ ./app/
