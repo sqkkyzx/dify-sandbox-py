@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "agent/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.14
+          uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
+      - name: Run tests
+        run: .venv/bin/python -m pytest
+      - name: Lint and format check
+        run: |
+          .venv/bin/ruff check app tests
+          .venv/bin/ruff format --check app tests
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build Python 3.14 image
+        run: docker build --tag dify-sandbox-py:python3.14 .
+      - name: Smoke test Dify API contract
+        run: |
+          docker run --detach --name dify-sandbox-ci \
+            --env API_KEY=ci-secret \
+            --publish 18194:8194 \
+            dify-sandbox-py:python3.14
+          trap 'docker rm --force dify-sandbox-ci' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18194/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs dify-sandbox-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          response=$(curl --fail --silent \
+            --header 'Content-Type: application/json' \
+            --header 'X-Api-Key: ci-secret' \
+            --data '{"language":"python3","code":"print(42)","preload":"","enable_network":true}' \
+            http://127.0.0.1:18194/v1/sandbox/run)
+          python -c 'import json, sys; assert json.loads(sys.argv[1])["data"]["stdout"] == "42\n"' "$response"
